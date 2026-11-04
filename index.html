@@ -240,6 +240,9 @@ svg.chart [data-tip]:hover{opacity:.75}
 .sop .warnb{background:var(--warn-soft);border-left:4px solid var(--warn);padding:8px 12px;border-radius:6px;margin:8px 0;font-size:13px}
 .sop table{margin:6px 0 10px}
 .doc .tip,.doc .warnb{border-left:3px solid #888;padding:4px 8px;margin:6px 0;background:#f4f6f8}
+.syncpill{font-size:12px;padding:4px 10px;border-radius:999px;background:var(--mute-soft);color:var(--muted);white-space:nowrap}
+.syncpill.ok{background:var(--ok-soft);color:var(--ok)}.syncpill.warn{background:var(--warn-soft);color:var(--warn)}.syncpill.err{background:var(--crit-soft);color:var(--crit)}
+.syncpill[data-act]{cursor:pointer;text-decoration:underline}
 @media (max-width:980px){.s4,.s6,.s8{grid-column:span 12}}
 @media (max-width:980px){.cols{grid-template-columns:1fr}}
 @media (max-width:860px){
@@ -270,7 +273,17 @@ svg.chart [data-tip]:hover{opacity:.75}
       <button type="submit" class="btn pri">Sign in</button>
     </form>
     <div id="lmsg" class="lmsg" role="alert"></div>
+    <form id="bform" hidden autocomplete="off">
+      <div class="alert info" style="margin:0"><b>First-time setup.</b> Create the first administrator for this shared database.</div>
+      <label class="fld"><span>Full name</span><input name="n" required></label>
+      <label class="fld"><span>Username</span><input name="u" required autocomplete="username"></label>
+      <label class="fld"><span>Password (at least 8 characters)</span><input name="p" type="password" required autocomplete="new-password"></label>
+      <label class="fld"><span>Confirm password</span><input name="p2" type="password" required autocomplete="new-password"></label>
+      <label class="chk"><input type="checkbox" name="sample"> Load sample data to explore (you can clear it later)</label>
+      <button type="submit" class="btn pri">Create administrator &amp; start</button>
+    </form>
     <div id="ldemo" class="ldemo"></div>
+    <div id="lmode" class="sub" style="margin-top:12px"></div>
   </div>
 </div>
 <div id="tip" hidden></div>
@@ -307,6 +320,7 @@ svg.chart [data-tip]:hover{opacity:.75}
         <button type="button" class="btn" id="tbWalk" data-act="walkin">Walk-in rental</button>
         <button type="button" class="btn pri" id="tbNew" data-act="newBooking">+ New booking</button>
         <button type="button" class="btn sm" data-act="go" data-id="help" title="Help and standard operating procedure">? Help</button>
+        <span id="sync" class="syncpill"></span>
         <div class="who" id="who"></div>
         <button type="button" class="btn sm" data-act="changePw">Password</button>
         <button type="button" class="btn sm" data-act="logout">Sign out</button>
@@ -331,6 +345,8 @@ svg.chart [data-tip]:hover{opacity:.75}
 <div id="toasts" aria-live="polite"></div>
 <input type="file" id="fileIn" accept=".json,application/json" hidden>
 
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>
 'use strict';
 /* =====================================================================
@@ -369,7 +385,7 @@ const BLOCK = ['Maintenance', 'Accident Hold', 'Under Inspection', 'Return Pendi
 const VSTAT = ['Available', 'Under Inspection', 'Return Pending', 'Maintenance', 'Accident Hold', 'Unavailable', 'Retired'];
 const STATUS_CLASS = {Available:'ok',Reserved:'info',Rented:'acc','Return Pending':'warn','Under Inspection':'warn',Maintenance:'crit','Accident Hold':'crit',Unavailable:'mute',Retired:'mute',
   Pending:'warn',Confirmed:'info',Converted:'ok',Cancelled:'mute','No-show':'crit',Active:'acc',Completed:'ok',Overdue:'crit',
-  Paid:'ok','Part-paid':'warn',Unpaid:'crit','Credit due':'info',Open:'warn',Prepaid:'info',Verified:'ok',Rejected:'crit',Disabled:'mute',Locked:'crit',
+  Paid:'ok','Part-paid':'warn',Unpaid:'crit','Credit due':'info',Open:'warn',Prepaid:'info',Verified:'ok',Rejected:'crit',Disabled:'mute',Locked:'crit',Online:'ok',
   'Good standing':'ok',Watch:'warn','Do not rent':'crit',Payment:'ok',Deposit:'info','Deposit applied':'mute','Deposit refund':'warn',Refund:'warn',Normal:'ok',Warning:'warn',Critical:'crit','Near limit':'crit'};
 const badge = s => `<span class="badge b-${STATUS_CLASS[s] || 'mute'}">${esc(s)}</span>`;
 const btn = (act, id, label, cls) => !canAct(act, id) ? '' : `<button type="button" class="btn sm ${cls || ''}" data-act="${act}" data-id="${esc(id)}">${label}</button>`;
@@ -443,6 +459,7 @@ function sha256(str) {
 const hashPw = (pw, salt) => { let h = sha256(salt + ':' + pw); for (let i = 0; i < 500; i++) h = sha256(salt + h); return h; };
 function makeUser(name, username, roleId, pw) { const salt = uid() + uid(); return {id: uid(), name, username, roleId, active: true, salt, hash: hashPw(pw, salt), mustChange: false, created: dtLocal(new Date()), lastLogin: null, failed: 0, lockedUntil: 0}; }
 function ensureSecurity() {
+  if (CLOUD) { if (!Array.isArray(db.users)) db.users = []; if (!Array.isArray(db.roles)) db.roles = []; return; }
   if (!Array.isArray(db.roles) || !db.roles.length) db.roles = DEFAULT_ROLES.map(([name, perms]) => ({id: uid(), name, perms: perms.slice()}));
   if (!Array.isArray(db.users) || !db.users.length) {
     const r = n => (db.roles.find(x => x.name === n) || db.roles[0]).id;
@@ -469,6 +486,12 @@ function canAct(act, id) { return act === 'go' ? can(VIEW_PERM[id]) : can(ACT_PE
 function whoName() { const u = currentUser(); return u ? `${u.name} (${u.username})` : 'System'; }
 function logout(msg) {
   const u = currentUser(); if (u) audit('Sign out', 'User', u.username, msg || '');
+  if (CLOUD) {
+    const p = Cloud.ready ? Cloud.push() : Promise.resolve();
+    Cloud.ready = false; SESSION = null; storeSession(); closeModal();
+    p.finally(async () => { await Cloud.stop(); if (sb) await sb.auth.signOut(); });
+    db = blank(); render(); if (msg) $('#lmsg').textContent = msg; return;
+  }
   SESSION = null; storeSession(); closeModal(); save(); render();
   if (msg) $('#lmsg').textContent = msg;
 }
@@ -476,9 +499,15 @@ function showLogin() {
   $('.app').hidden = true; $('#modal').hidden = true; $('#login').hidden = false;
   $('#lbiz').textContent = db.settings.business || 'Car Rental';
   $('#ldemo').innerHTML = '';
+  $('#lmode').textContent = CLOUD ? 'Shared database — sign in with the username your administrator gave you.' : 'Local mode — records are stored in this browser on this computer only.';
+  Cloud.paint();
   setTimeout(() => { const i = $('#lform').elements.u; if (i && !i.value) i.focus(); }, 30);
 }
 
+const SEED_CATS = [['Economy', 'Swift / Yaris class — 5 seats, low fuel use', 6500, 39000, 150000, 15000], ['Compact SUV', 'RAV4 class — tourists and families', 12000, 72000, 280000, 20000],
+    ['4WD Pick-up', 'Hilux / Ranger double cab — roads outside town', 14000, 84000, 330000, 30000], ['Minivan / Van', 'Noah / Hiace — groups, events, transfers', 16000, 96000, 380000, 30000],
+    ['Premium SUV', 'Land Cruiser Prado class — executive and VIP', 22000, 132000, 520000, 50000]];
+const defaultCategories = () => SEED_CATS.map(c => ({id: uid(), name: c[0], description: c[1], daily: c[2], weekly: c[3], monthly: c[4], deposit: c[5], active: true}));
 /* ---------- storage ---------- */
 function blank() {
   return {
@@ -492,8 +521,11 @@ function blank() {
     seq:{cust:0, book:0, agr:0, inv:0, pay:0}
   };
 }
-function next(kind, prefix, width) { db.seq[kind] = (db.seq[kind] || 0) + 1; return prefix + String(db.seq[kind]).padStart(width, '0'); }
+function next(kind, prefix, width) {
+  if (CLOUD && Cloud.ready) { const v = Cloud.take(kind); return v != null ? prefix + String(v).padStart(width, '0') : prefix + 'X' + Date.now().toString(36).toUpperCase(); }
+  db.seq[kind] = (db.seq[kind] || 0) + 1; return prefix + String(db.seq[kind]).padStart(width, '0'); }
 function load() {
+  if (CLOUD) { db = blank(); return; }
   try {
     const s = localStorage.getItem(KEY);
     if (s) { const d = JSON.parse(s); const b = blank(); db = Object.assign(b, d); db.settings = Object.assign(b.settings, d.settings || {}); db.seq = Object.assign(b.seq, d.seq || {}); ensureSecurity(); return; }
@@ -501,17 +533,18 @@ function load() {
   seed();
 }
 function storageInfo() {
-  const bytes = new Blob([JSON.stringify(db)]).size, cap = 5e6, pct = bytes / cap * 100;
+  const bytes = new Blob([JSON.stringify(db)]).size, cap = CLOUD ? 5e8 : 5e6, pct = bytes / cap * 100;
   return {bytes, cap, pct, lvl: pct >= 98 ? 'Near limit' : pct >= 90 ? 'Critical' : pct >= 70 ? 'Warning' : 'Normal'};
 }
 function save() {
+  if (CLOUD) { Cloud.push(); return; }
   try { localStorage.setItem(KEY, JSON.stringify(db)); }
   catch (e) { toast('Could not save — browser storage is full or blocked. Export a backup now.', 'err'); }
 }
 function audit(action, entity, ref, details) {
   if (seeding) return;
-  db.audit.unshift({ts: dtLocal(new Date()), user: whoName(), action, entity, ref: ref || '', details: details || ''});
-  if (db.audit.length > 3000) db.audit.length = 3000;
+  db.audit.unshift({id: uid(), ts: dtLocal(new Date()), user: whoName(), action, entity, ref: ref || '', details: details || ''});
+  if (!CLOUD && db.audit.length > 3000) db.audit.length = 3000;
 }
 
 /* ---------- business rules ---------- */
@@ -1092,7 +1125,7 @@ function vSettings() {
         {h: 'Monthly (30 days)', n: 1, v: c => c.monthly ? fmt(c.monthly) : '—'}, {h: 'Deposit', n: 1, v: c => fmt(c.deposit)}, {h: 'Vehicles', n: 1, v: c => db.vehicles.filter(v => v.categoryId === c.id).length},
         {h: 'Active', v: c => c.active === false ? badge('Inactive') : badge('Active')}, {h: '', v: c => acts([btn('editCategory', c.id, 'Edit')])}], db.categories, {search: false}))
     + card('Data, backup &amp; storage', `
-        <p>Records are saved automatically in this browser on this computer. <b>Export a backup regularly</b> and keep a copy off this device — clearing browser data deletes the records.</p>
+        ${CLOUD ? '<p>Records are stored in the <b>shared cloud database</b> and sync to every signed-in user within seconds. Still export a backup regularly and keep it off this computer.</p>' : '<p>Records are saved automatically in this browser on this computer. <b>Export a backup regularly</b> and keep a copy off this device — clearing browser data deletes the records.</p>'}
         <p class="sub">Storage used: <b>${num(si.bytes)} bytes</b> of about ${num(si.cap)} (${si.pct.toFixed(1)}%) — ${badge(si.lvl)}. Alerts follow the blueprint thresholds: 70% warning, 90% critical, 98% near limit.</p>
         <div class="meter" style="background:var(--mute-soft);height:10px;margin-bottom:14px"><i style="width:${Math.min(100, si.pct).toFixed(1)}%;background:${meterCls}"></i></div>
         ${toolbar([btn('exportJSON', '', 'Export backup (.json)', 'pri'), btn('importJSON', '', 'Restore from backup'), btn('exportSQL', '', 'Export SQLite script (.sql)')])}
@@ -1129,7 +1162,8 @@ function render() {
   $('#main').innerHTML = VIEWS[view][1]();
   save();
   const si = storageInfo();
-  $('#meter').innerHTML = `Storage ${si.pct.toFixed(1)}% · ${esc(si.lvl)}<div class="meter"><i style="width:${Math.min(100, si.pct).toFixed(1)}%;background:${si.pct >= 90 ? 'var(--crit)' : si.pct >= 70 ? 'var(--warn)' : 'var(--ok)'}"></i></div>`;
+  Cloud.stale = false; Cloud.paint();
+  if (CLOUD) $('#meter').innerHTML = `Cloud database · ${num(Cloud.shadow.size)} records`; else $('#meter').innerHTML = `Storage ${si.pct.toFixed(1)}% · ${esc(si.lvl)}<div class="meter"><i style="width:${Math.min(100, si.pct).toFixed(1)}%;background:${si.pct >= 90 ? 'var(--crit)' : si.pct >= 70 ? 'var(--warn)' : 'var(--ok)'}"></i></div>`;
 }
 
 /* =====================================================================
@@ -1624,9 +1658,9 @@ const A = {
   copyEmails: () => { const st = custStats(); const list = db.customers.filter(c => c.marketingOptIn && c.email && st[c.id] && daysUntil(st[c.id].last) < -90).map(c => c.email).join(', ');
     const done = () => toast('Email addresses copied');
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(list).then(done, () => prompt('Copy these addresses:', list)); else prompt('Copy these addresses:', list); },
-  loadSample: () => { if (!confirm('Replace ALL current records with sample data? Export a backup first if you need your data.')) return; seed(); view = 'dashboard'; render(); toast('Sample data loaded'); },
+  loadSample: () => { if (!confirm('Replace ALL current records with sample data? Export a backup first if you need your data.' + (CLOUD ? '\nThis changes the SHARED database for every user.' : ''))) return; if (CLOUD) { cloudLoadSample(); return; } seed(); view = 'dashboard'; render(); toast('Sample data loaded'); },
   resetAll: () => { const t = prompt('This deletes all vehicles, customers, bookings, rentals, invoices, payments and maintenance records (settings and categories are kept).\nType DELETE to confirm:'); if (t !== 'DELETE') return;
-    const keep = {settings: db.settings, categories: db.categories, users: db.users, roles: db.roles}; db = Object.assign(blank(), keep); audit('Reset', 'Database', '', 'All operational records cleared'); view = 'dashboard'; render(); toast('Records cleared'); }
+    const keep = {settings: db.settings, categories: db.categories, users: db.users, roles: db.roles}; if (CLOUD) { keep.audit = db.audit; Cloud.allowBulk = true; } db = Object.assign(blank(), keep); audit('Reset', 'Database', '', 'All operational records cleared'); view = 'dashboard'; render(); toast('Records cleared'); }
 };
 
 /* =====================================================================
@@ -1794,13 +1828,13 @@ function vTimeline() {
 /* ---------- users & privileges ---------- */
 function vUsers() {
   const me = currentUser(), users = [...db.users].sort((a, b) => a.name.localeCompare(b.name));
-  const sample = db.users.filter(u => u.hash === hashPw(u.username === 'admin' ? 'admin123' : 'demo123', u.salt));
+  const sample = CLOUD ? [] : db.users.filter(u => u.hash === hashPw(u.username === 'admin' ? 'admin123' : 'demo123', u.salt));
   const ut = table([
     {h: 'Name', v: u => `<b>${esc(u.name)}</b>${u.id === me.id ? ' <span class="badge b-acc">you</span>' : ''}`},
     {h: 'Username', v: u => esc(u.username)},
     {h: 'Role', v: u => esc((roleOf(u) || {}).name || '— none —')},
     {h: 'Privileges', n: 1, v: u => ((roleOf(u) || {perms: []}).perms.length) + ' / ' + PERMS.length},
-    {h: 'Status', v: u => badge(u.active ? 'Active' : 'Disabled') + (u.lockedUntil > Date.now() ? ' ' + badge('Locked') : '') + (u.mustChange ? '<div class="sub">must change password</div>' : '') + (sample.includes(u) ? '<div class="sub twarn">sample password</div>' : '')},
+    {h: 'Status', v: u => (Cloud.online[u.id] ? badge('Online') + ' ' : '') + badge(u.active ? 'Active' : 'Disabled') + (u.lockedUntil > Date.now() ? ' ' + badge('Locked') : '') + (u.mustChange ? '<div class="sub">must change password</div>' : '') + (sample.includes(u) ? '<div class="sub twarn">sample password</div>' : '')},
     {h: 'Last sign-in', v: u => u.lastLogin ? fmtDT(u.lastLogin) : '<span class="muted">never</span>'},
     {h: '', v: u => acts([btn('editUser', u.id, 'Edit', 'pri')])}], users, {search: false});
   const roles = db.roles;
@@ -1819,18 +1853,29 @@ function vUsers() {
 function userForm(u) {
   const isNew = !u, me = currentUser();
   const o = u ? Object.assign({}, u) : {active: true, mustChange: true, roleId: (db.roles.find(r => r.name === 'Rental Officer') || db.roles[0]).id};
-  const fields = [{k: 'name', l: 'Full name', req: 1}, {k: 'username', l: 'Username', req: 1, hint: '3–32 characters: letters, numbers, dot, dash or underscore.'},
+  const fields = [{k: 'name', l: 'Full name', req: 1}, CLOUD && !isNew ? {t: 'html', html: `<div class="info">Username: <b>${esc(u.username)}</b> — fixed once created</div>`} : {k: 'username', l: 'Username', req: 1, hint: '3–32 characters: letters, numbers, dot, dash or underscore. Used to sign in.'},
     {k: 'roleId', l: 'Role', t: 'select', opts: db.roles.map(r => [r.id, `${r.name} (${r.perms.length} privileges)`])}, {k: 'active', t: 'checkbox', l: 'Account active — can sign in'},
     {t: 'h', l: isNew ? 'Password' : 'Reset password — leave blank to keep the current one'},
     {k: 'password', l: 'Password', t: 'password', req: isNew ? 1 : 0, hint: 'At least 6 characters.'}, {k: 'confirm', l: 'Confirm password', t: 'password', req: isNew ? 1 : 0},
     {k: 'mustChange', t: 'checkbox', l: 'Require a new password at next sign-in', full: 1}];
   openModal(isNew ? 'Add user' : `Edit user — ${u.username}`, formHtml(fields, o), d => {
+    if (CLOUD && !isNew) d.username = u.username;
     if (!/^[A-Za-z0-9._-]{3,32}$/.test(d.username)) fail('Username must be 3–32 characters: letters, numbers, dot, dash or underscore.');
     if (db.users.some(x => x !== u && x.username.toLowerCase() === d.username.toLowerCase())) fail('That username is already taken.');
     if (isNew || d.password) { if (d.password.length < 6) fail('Password must be at least 6 characters.'); if (d.password !== d.confirm) fail('The passwords do not match.'); }
     if (!isNew && u.id === me.id && !d.active) fail('You cannot disable your own account.');
     const after = db.users.map(x => x === u ? Object.assign({}, x, {active: d.active, roleId: d.roleId}) : x).concat(isNew ? [{active: d.active, roleId: d.roleId}] : []);
     if (!after.some(x => x.active && (byId(db.roles, x.roleId) || {perms: []}).perms.includes('users'))) fail('At least one active user must keep the "Manage users" privilege.');
+    if (CLOUD) return (async () => {
+      let id = u ? u.id : null;
+      if (isNew) id = await cloudCreateUser(d);
+      else if (d.password) { const {error} = await sb.rpc('crms_set_password', {p_user: u.id, p_password: d.password}); if (error) throw new Error('Password not changed: ' + error.message); }
+      const rec = isNew ? {id, created: dtLocal(new Date()), lastLogin: null} : u, oldRole = rec.roleId;
+      Object.assign(rec, {name: d.name, username: d.username, roleId: d.roleId, active: d.active, mustChange: d.mustChange});
+      if (isNew) db.users.push(rec);
+      audit(isNew ? 'Create' : 'Update', 'User', rec.username, `${(byId(db.roles, rec.roleId) || {}).name}${!isNew && oldRole !== rec.roleId ? ' (role changed)' : ''}; ${rec.active ? 'active' : 'disabled'}${d.password ? '; password set' : ''}`);
+      toast(isNew ? `User ${rec.username} created — they can sign in now from any computer` : `User ${rec.username} saved`);
+    })();
     const rec = isNew ? {id: uid(), created: dtLocal(new Date()), lastLogin: null, failed: 0, lockedUntil: 0} : u;
     const oldRole = rec.roleId;
     Object.assign(rec, {name: d.name, username: d.username, roleId: d.roleId, active: d.active, mustChange: d.mustChange});
@@ -1853,8 +1898,14 @@ Object.assign(A, {
   changePw: () => {
     const u = currentUser();
     openModal('Change your password', formHtml([{k: 'cur', l: 'Current password', t: 'password', req: 1, full: 1}, {k: 'np', l: 'New password', t: 'password', req: 1, hint: 'At least 6 characters.'}, {k: 'cp', l: 'Confirm new password', t: 'password', req: 1}], {}), d => {
-      if (hashPw(d.cur, u.salt) !== u.hash) fail('Current password is incorrect.');
       if (d.np.length < 6) fail('New password must be at least 6 characters.'); if (d.np !== d.cp) fail('New passwords do not match.'); if (d.np === d.cur) fail('Choose a different password.');
+      if (CLOUD) return (async () => {
+        const r = await sb.auth.signInWithPassword({email: toEmail(u.username), password: d.cur}); if (r.error) throw new Error('Current password is incorrect.');
+        const r2 = await sb.auth.updateUser({password: d.np}); if (r2.error) throw new Error(r2.error.message);
+        await sb.rpc('crms_self_update', {p_last_login: null, p_clear_must: true});
+        audit('Password change', 'User', u.username, ''); toast('Password changed');
+      })();
+      if (hashPw(d.cur, u.salt) !== u.hash) fail('Current password is incorrect.');
       u.salt = uid() + uid(); u.hash = hashPw(d.np, u.salt); u.mustChange = false; audit('Password change', 'User', u.username, ''); toast('Password changed');
     }, {submit: 'Change password'});
   },
@@ -2026,6 +2077,14 @@ const SOP = [
   <li><b>SQLite script</b>: for moving to the server database in the blueprint.</li>
   <li><b>CSV</b>: customers, vehicles, invoices, payments for Excel or accounting.</li></ol>
   <div class="warnb">Records live in this browser on this computer. Clearing browser data, a new computer or a different browser = empty system unless you restore a backup. Watch the storage meter (bottom of the menu).</div>`],
+ ['shared', 'Shared online mode (many users at once)', '', `
+  <ul><li>The top bar shows <b>● Synced · N online</b> — everyone signed in right now (hover to see names).</li>
+  <li>Every save goes to the shared database and appears on other users' screens within seconds.</li>
+  <li><b>↻ New changes — click to refresh</b>: someone else changed data while you had a form open. Finish or close your form, then click it.</li>
+  <li><b>● Not saved / Offline</b>: check the internet connection; the system reloads the latest shared data automatically.</li>
+  <li>Document numbers (bookings, agreements, invoices) are unique across all users but may skip numbers — this is normal.</li>
+  <li>New users are created by an administrator (Users &amp; privileges → <b>+ Add user</b>) and can sign in straight away from any computer at the same web address.</li>
+  <li>If two people edit the <i>same</i> record at the same moment, the last save wins — agree who handles each booking.</li></ul>`],
  ['faq', 'Troubleshooting', '', `
   <table><thead><tr><th>Problem</th><th>What to do</th></tr></thead><tbody>
   <tr><td>Vehicle not listed at check-out</td><td>It is in workshop, inspection, on hold, already on rent, or has an expired registration/insurance — check Fleet.</td></tr>
@@ -2068,6 +2127,245 @@ document.addEventListener('input', e => {
   document.querySelectorAll('section.sop').forEach(sec => { sec.hidden = q && !sec.textContent.toLowerCase().includes(q); });
 });
 
+/* =====================================================================
+   CLOUD MODE — shared Supabase database, many users at the same time
+   Enabled when config.js provides supabaseUrl + supabaseAnonKey.
+   ===================================================================== */
+const CFG = window.CRMS_CONFIG || {};
+const CLOUD = !!(CFG.supabaseUrl && CFG.supabaseAnonKey);
+const COLLS = ['categories', 'vehicles', 'customers', 'bookings', 'rentals', 'invoices', 'payments', 'maintenance', 'audit', 'users', 'roles'];
+const SEQ_SRC = {cust: ['customers', 'custNo', 'C-'], book: ['bookings', 'ref', 'BK-'], agr: ['rentals', 'agNo', 'RA-'], inv: ['invoices', 'no', 'INV-'], pay: ['payments', 'ref', 'PMT-']};
+let sb = null;
+if (CLOUD && window.supabase && window.supabase.createClient) {
+  sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey, {auth: {storage: window.sessionStorage, persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storageKey: 'crms-auth'}});
+}
+const toEmail = u => { const x = String(u).trim().toLowerCase(); return x.includes('@') ? x : `${x}@${CFG.loginDomain || 'example.com'}`; };
+const replaceInPlace = (o, n) => { Object.keys(o).forEach(k => delete o[k]); Object.assign(o, n); };
+const Cloud = {
+  shadow: new Map(), chan: null, pres: null, online: {}, busy: false, again: false, ready: false, stale: false, allowBulk: false, blocks: {}, state: 'loading', timer: null,
+  k: (c, id) => c + '/' + id,
+  paint() {
+    const el = $('#sync'); if (!el) return;
+    if (!CLOUD) { el.className = 'syncpill'; el.textContent = 'Local mode'; el.title = 'Records are stored in this browser only'; delete el.dataset.act; return; }
+    const ids = Object.keys(this.online), names = ids.map(i => this.online[i].name).join(', ');
+    const map = {ok: ['ok', '● Synced'], saving: ['warn', '● Saving…'], loading: ['warn', '● Loading…'], error: ['err', '● Not saved'], offline: ['err', '● Offline']};
+    const [cls, txt] = this.stale ? ['warn', '↻ New changes — click to refresh'] : (map[this.state] || map.ok);
+    el.className = 'syncpill ' + cls; el.textContent = txt + (ids.length ? ` · ${ids.length} online` : '');
+    el.title = ids.length ? 'Signed in now: ' + names : '';
+    if (this.stale) el.dataset.act = 'cloudRefresh'; else delete el.dataset.act;
+  },
+  set(st) { this.state = st; this.paint(); },
+  async fetchAll() {
+    const rows = [];
+    for (let from = 0; ; from += 1000) {
+      const {data, error} = await sb.from('records').select('collection,id,data').eq('deleted', false).order('collection').order('id').range(from, from + 999);
+      if (error) throw error;
+      rows.push(...data); if (data.length < 1000) break;
+    }
+    const d = blank(); this.shadow.clear();
+    rows.forEach(r => {
+      if (r.collection === 'settings') Object.assign(d.settings, r.data);
+      else if (Array.isArray(d[r.collection])) d[r.collection].push(r.data);
+      if (r.collection !== 'settings') this.shadow.set(this.k(r.collection, r.id), JSON.stringify(r.data));
+    });
+    d.audit.sort((a, b) => String(b.ts).localeCompare(String(a.ts)));
+    const ro = n => { const i = DEFAULT_ROLES.findIndex(x => x[0] === n); return i < 0 ? 99 : i; };
+    d.roles.sort((a, b) => ro(a.name) - ro(b.name) || String(a.name).localeCompare(String(b.name)));
+    db = d;
+    if (rows.some(r => r.collection === 'settings')) this.shadow.set('settings/main', JSON.stringify(db.settings));
+  },
+  rowsOf() {
+    const m = new Map();
+    COLLS.forEach(c => (db[c] || []).forEach(x => { if (x && x.id) m.set(this.k(c, x.id), {collection: c, id: String(x.id), data: x}); }));
+    m.set('settings/main', {collection: 'settings', id: 'main', data: db.settings});
+    return m;
+  },
+  async push() {
+    if (!this.ready || !sb) return;
+    if (this.busy) { this.again = true; return; }
+    const cur = this.rowsOf(), ups = [], dels = {}; let nDel = 0;
+    const allowed = c => (c === 'users' || c === 'roles') ? can('users') : (c === 'settings' || c === 'categories') ? can('settings') : true;
+    cur.forEach((r, key) => { if (!allowed(r.collection)) return; const j = JSON.stringify(r.data); if (this.shadow.get(key) !== j) { r.json = j; ups.push(r); } });
+    this.shadow.forEach((j, key) => { if (!cur.has(key)) { const i = key.indexOf('/'), c = key.slice(0, i); if (c !== 'audit' && c !== 'settings' && allowed(c)) { (dels[c] = dels[c] || []).push(key.slice(i + 1)); nDel++; } } });
+    if (!ups.length && !nDel) return;
+    if (nDel > 20 && nDel > this.shadow.size * 0.25 && !this.allowBulk) { toast('Safety stop: a large unexpected deletion was blocked. Reloading the shared data.', 'err'); this.reload(); return; }
+    this.allowBulk = false; this.busy = true; this.set('saving');
+    try {
+      const now = new Date().toISOString(), row = r => ({collection: r.collection, id: r.id, data: JSON.parse(r.json), deleted: false, updated_at: now});
+      const order = ['roles', 'users', 'settings', 'categories'];
+      const rest = ups.filter(r => r.collection !== 'audit').sort((a, b) => (order.indexOf(a.collection) + 1 || 9) - (order.indexOf(b.collection) + 1 || 9));
+      const aud = ups.filter(r => r.collection === 'audit');
+      for (let i = 0; i < rest.length; i += 400) {
+        const part = rest.slice(i, i + 400);
+        const {error} = await sb.from('records').upsert(part.map(row), {onConflict: 'collection,id'});
+        if (error) throw error;
+        part.forEach(r => this.shadow.set(this.k(r.collection, r.id), r.json));
+      }
+      for (let i = 0; i < aud.length; i += 400) {
+        const part = aud.slice(i, i + 400);
+        const {error} = await sb.from('records').upsert(part.map(row), {onConflict: 'collection,id', ignoreDuplicates: true});
+        if (error) throw error;
+        part.forEach(r => this.shadow.set(this.k(r.collection, r.id), r.json));
+      }
+      for (const c of Object.keys(dels)) for (let i = 0; i < dels[c].length; i += 200) {
+        const ids = dels[c].slice(i, i + 200);
+        const {error} = await sb.from('records').update({deleted: true, updated_at: now}).eq('collection', c).in('id', ids);
+        if (error) throw error;
+        ids.forEach(id => this.shadow.delete(this.k(c, id)));
+      }
+      this.set('ok');
+    } catch (err) {
+      this.set('error');
+      toast('Not saved to the shared database: ' + (err.message || err) + ' — reloading the latest data.', 'err');
+      setTimeout(() => this.reload(), 1500);
+    } finally {
+      this.busy = false; if (this.again) { this.again = false; this.push(); }
+    }
+  },
+  async reload() {
+    if (!sb || !this.ready) return;
+    try { this.set('loading'); closeModal(); await this.fetchAll(); this.stale = false; this.set('ok'); render(); }
+    catch (e) { this.set('offline'); toast('Cannot reach the shared database: ' + (e.message || e), 'err'); }
+  },
+  apply(row) {
+    const c = row.collection, key = this.k(c, row.id);
+    if (c === 'settings') {
+      if (row.deleted) return false;
+      const merged = Object.assign(blank().settings, row.data), j = JSON.stringify(merged);
+      if (this.shadow.get(key) === j) return false;
+      replaceInPlace(db.settings, merged); this.shadow.set(key, j); return true;
+    }
+    if (!Array.isArray(db[c])) return false;
+    const arr = db[c], i = arr.findIndex(x => x.id === row.id);
+    if (row.deleted) { this.shadow.delete(key); if (i >= 0) { arr.splice(i, 1); return true; } return false; }
+    const j = JSON.stringify(row.data);
+    if (i >= 0 && JSON.stringify(arr[i]) === j) { this.shadow.set(key, j); return false; }
+    if (i >= 0) replaceInPlace(arr[i], row.data); else if (c === 'audit') arr.unshift(row.data); else arr.push(row.data);
+    this.shadow.set(key, j); return true;
+  },
+  onRemote(row) {
+    if (!this.ready || !row || !row.collection) return;
+    if (!this.apply(row)) return;
+    clearTimeout(this.timer); this.timer = setTimeout(() => this.refreshView(), 250);
+  },
+  refreshView() {
+    if (!this.ready) return;
+    if (!currentUser()) { logout('Your account was disabled or changed by an administrator.'); return; }
+    const a = document.activeElement;
+    const typing = a && a.closest && a.closest('#main') && /INPUT|SELECT|TEXTAREA/.test(a.tagName);
+    if (!$('#modal').hidden || typing) { this.stale = true; this.paint(); } else render();
+  },
+  start(user) {
+    this.chan = sb.channel('crms-records')
+      .on('postgres_changes', {event: '*', schema: 'public', table: 'records'}, p => this.onRemote(p.new))
+      .subscribe(st => { if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT') this.set('offline'); else if (st === 'SUBSCRIBED' && this.state === 'offline') this.reload(); });
+    const me = byId(db.users, user.id);
+    this.pres = sb.channel('crms-online', {config: {presence: {key: user.id}}});
+    this.pres.on('presence', {event: 'sync'}, () => {
+      const st = this.pres.presenceState(), o = {};
+      Object.keys(st).forEach(k => { const m = (st[k] && st[k][0]) || {}; o[k] = {name: m.name || 'User', role: m.role || ''}; });
+      this.online = o; this.paint();
+      if (view === 'users' && $('#modal').hidden) render();
+    }).subscribe(async st => { if (st === 'SUBSCRIBED') await this.pres.track({name: me ? me.name : '', role: me ? ((roleOf(me) || {}).name || '') : '', since: new Date().toISOString()}); });
+  },
+  async stop() {
+    try { if (this.chan) await sb.removeChannel(this.chan); if (this.pres) await sb.removeChannel(this.pres); } catch (e) { /* already closed */ }
+    this.chan = this.pres = null; this.online = {}; this.ready = false; this.shadow.clear(); this.blocks = {}; this.paint();
+  },
+  maxNo(kind) { const [c, f, pre] = SEQ_SRC[kind]; let m = 0; (db[c] || []).forEach(x => { const n = parseInt(String(x[f] || '').slice(pre.length), 10); if (n > m) m = n; }); return m; },
+  async reserve(kind, size) {
+    const {data, error} = await sb.rpc('crms_reserve', {p_kind: kind, p_size: size, p_floor: this.maxNo(kind)});
+    if (error) throw error;
+    this.blocks[kind] = {n: Number(data), end: Number(data) + size};
+  },
+  async reserveAll(sizes) { for (const k of Object.keys(SEQ_SRC)) await this.reserve(k, (sizes && sizes[k]) || 25); },
+  take(kind) {
+    const b = this.blocks[kind];
+    if (b && b.n < b.end) { const v = b.n++; if (b.end - b.n < 5 && !b.refilling) { b.refilling = true; this.reserve(kind, 25).catch(() => { b.refilling = false; }); } return v; }
+    return null;
+  }
+};
+async function startCloudSession(user, opts) {
+  opts = opts || {};
+  const msg = $('#lmsg'); msg.textContent = 'Loading shared data…'; Cloud.set('loading');
+  try { await Cloud.fetchAll(); }
+  catch (e) { msg.textContent = 'Could not load data: ' + (e.message || e); await sb.auth.signOut(); return false; }
+  const prof = byId(db.users, user.id);
+  if (!prof || !prof.active) {
+    await sb.auth.signOut(); db = blank(); showLogin();
+    msg.textContent = !prof ? 'Your sign-in works, but no administrator has set up your account yet.' : 'This account is disabled. Contact an administrator.';
+    return false;
+  }
+  msg.textContent = '';
+  SESSION = {uid: user.id, t: Date.now(), m: Number(db.settings.sessionMinutes) || 30}; storeSession();
+  Cloud.ready = true;
+  try { await Cloud.reserveAll(opts.sizes); } catch (e) { toast('Could not reserve document numbers: ' + (e.message || e), 'err'); }
+  Cloud.start(user); Cloud.set('ok');
+  if (!opts.quiet) audit('Sign in', 'User', prof.username, (roleOf(prof) || {}).name || '');
+  sb.rpc('crms_self_update', {p_last_login: dtLocal(new Date()), p_clear_must: false}).then(() => {}, () => {});
+  view = 'dashboard'; render();
+  if (prof.mustChange) setTimeout(() => { A.changePw(); toast('Please choose a new password.'); }, 80);
+  return true;
+}
+async function cloudLogin(f) {
+  const msg = $('#lmsg'), b = f.querySelector('button');
+  if (!sb) { msg.textContent = 'Cannot reach the shared database. Check the internet connection and config.js.'; return; }
+  const un = f.elements.u.value.trim(), pw = f.elements.p.value;
+  b.disabled = true; msg.textContent = 'Signing in…';
+  const {data, error} = await sb.auth.signInWithPassword({email: toEmail(un), password: pw});
+  b.disabled = false;
+  if (error) { msg.textContent = /invalid|credentials/i.test(error.message) ? 'Incorrect username or password.' : error.message; f.elements.p.value = ''; f.elements.p.focus(); return; }
+  f.reset(); await startCloudSession(data.user);
+}
+async function cloudCreateUser(d) {
+  const tmp = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey, {auth: {persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'crms-signup-' + Date.now()}});
+  const {data, error} = await tmp.auth.signUp({email: toEmail(d.username), password: d.password, options: {data: {name: d.name, username: d.username}}});
+  if (error) throw new Error('Sign-in account not created: ' + error.message);
+  if (!data.user || (Array.isArray(data.user.identities) && data.user.identities.length === 0)) throw new Error('That username already has a sign-in account. Choose another username.');
+  if (!data.session) toast('Account created, but Supabase "Confirm email" is ON — turn it off so new users can sign in (see README).', 'err');
+  return data.user.id;
+}
+async function cloudLoadSample() {
+  try { await Cloud.reserveAll({cust: 60, book: 400, agr: 350, inv: 350, pay: 1200}); }
+  catch (e) { toast('Could not reserve numbers: ' + (e.message || e), 'err'); return; }
+  Cloud.allowBulk = true; seed(); view = 'dashboard'; render(); toast('Sample data loaded and shared with all users');
+}
+async function cloudBoot(saved) {
+  db = blank(); Cloud.paint();
+  if (!sb) { $('#lmsg').textContent = 'Cannot reach the shared database. Check the internet connection and the settings in config.js.'; return; }
+  sb.auth.onAuthStateChange(ev => { if (ev === 'SIGNED_OUT' && SESSION) { SESSION = null; storeSession(); Cloud.stop(); db = blank(); render(); } });
+  const {data} = await sb.auth.getSession();
+  const s = data && data.session;
+  if (s && saved && saved.uid === s.user.id && Date.now() - saved.t < (saved.m || 30) * 60000) { await startCloudSession(s.user, {quiet: true}); return; }
+  if (s) await sb.auth.signOut();
+  try { const r = await sb.rpc('crms_is_setup'); if (!r.error && r.data === false) { $('#lform').hidden = true; $('#bform').hidden = false; $('#lmsg').textContent = ''; } }
+  catch (e) { /* offline */ }
+}
+$('#bform').addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = e.target, msg = $('#lmsg'), name = f.elements.n.value.trim(), un = f.elements.u.value.trim(), pw = f.elements.p.value;
+  if (!/^[A-Za-z0-9._-]{3,32}$/.test(un)) { msg.textContent = 'Username must be 3–32 characters: letters, numbers, dot, dash or underscore.'; return; }
+  if (pw.length < 8) { msg.textContent = 'Use at least 8 characters for the administrator password.'; return; }
+  if (pw !== f.elements.p2.value) { msg.textContent = 'The passwords do not match.'; return; }
+  const btnEl = f.querySelector('button'); btnEl.disabled = true; msg.textContent = 'Creating administrator…';
+  try {
+    let {data, error} = await sb.auth.signUp({email: toEmail(un), password: pw, options: {data: {name, username: un}}});
+    if (error) throw new Error(error.message);
+    if (!data.session) { const r = await sb.auth.signInWithPassword({email: toEmail(un), password: pw}); if (r.error) throw new Error('Account created but sign-in failed (' + r.error.message + '). In Supabase, turn OFF "Confirm email" — see README.'); data = r.data; }
+    const roles = DEFAULT_ROLES.map(([n, perms]) => ({id: uid(), name: n, perms: perms.slice()}));
+    const prof = {id: data.user.id, name, username: un, roleId: roles[0].id, active: true, mustChange: false, created: dtLocal(new Date()), lastLogin: null};
+    const r2 = await sb.rpc('crms_bootstrap', {p_roles: roles, p_profile: prof});
+    if (r2.error) { await sb.auth.signOut(); throw new Error('Setup failed: ' + r2.error.message); }
+    const sample = f.elements.sample.checked;
+    f.hidden = true; $('#lform').hidden = false; f.reset();
+    if (!(await startCloudSession(data.user, {quiet: true}))) return;
+    audit('Setup', 'Database', '', 'First administrator created');
+    if (sample) await cloudLoadSample(); else { if (!db.categories.length) db.categories = defaultCategories(); render(); }
+  } catch (err) { msg.textContent = err.message || String(err); }
+  finally { btnEl.disabled = false; }
+});
+A.cloudRefresh = () => { Cloud.stale = false; closeModal(); render(); };
+
 /* ---------- events ---------- */
 document.addEventListener('click', e => {
   if (e.target.closest('[data-close]') || e.target.id === 'modal') { closeModal(); return; }
@@ -2085,11 +2383,19 @@ document.addEventListener('input', e => {
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#modal').hidden) closeModal(); });
 $('#mform').addEventListener('submit', e => {
   e.preventDefault(); if (!modalSubmit) return;
-  try { const res = modalSubmit(readForm($('#mwrap')), e.target); if (res !== false) { closeModal(); render(); } }
+  try {
+    const res = modalSubmit(readForm($('#mwrap')), e.target);
+    if (res && typeof res.then === 'function') {
+      const sbtn = $('#msubmit'), old = sbtn.textContent; sbtn.disabled = true; sbtn.textContent = 'Working…';
+      res.then(r => { sbtn.disabled = false; sbtn.textContent = old; if (r !== false) { closeModal(); render(); } }, err => { sbtn.disabled = false; sbtn.textContent = old; toast(err.message || String(err), 'err'); });
+      return;
+    }
+    if (res !== false) { closeModal(); render(); } }
   catch (err) { toast(err.message || String(err), 'err'); }
 });
-$('#lform').addEventListener('submit', e => {
+$('#lform').addEventListener('submit', async e => {
   e.preventDefault();
+  if (CLOUD) { await cloudLogin(e.target); return; }
   const f = e.target, un = f.elements.u.value.trim(), pw = f.elements.p.value, msg = $('#lmsg'), now = Date.now();
   const u = db.users.find(x => x.username.toLowerCase() === un.toLowerCase());
   if (u && u.lockedUntil > now) { msg.textContent = `Too many attempts — try again in ${Math.ceil((u.lockedUntil - now) / 1000)} seconds.`; return; }
@@ -2100,7 +2406,7 @@ $('#lform').addEventListener('submit', e => {
     msg.textContent = 'Incorrect username or password, or the account is disabled.'; f.elements.p.value = ''; f.elements.p.focus(); return;
   }
   u.failed = 0; u.lockedUntil = 0; u.lastLogin = dtLocal(new Date());
-  SESSION = {uid: u.id, t: now}; storeSession(); msg.textContent = ''; f.reset();
+  SESSION = {uid: u.id, t: now, m: Number(db.settings.sessionMinutes) || 30}; storeSession(); msg.textContent = ''; f.reset();
   audit('Sign in', 'User', u.username, (roleOf(u) || {}).name || ''); view = 'dashboard'; render();
   if (u.mustChange) setTimeout(() => { A.changePw(); toast('Please choose a new password.'); }, 60);
 });
@@ -2122,7 +2428,10 @@ $('#fileIn').addEventListener('change', e => {
     let d; try { d = JSON.parse(t); } catch (x) { toast('That file is not a valid backup.', 'err'); return; }
     if (!d || !Array.isArray(d.vehicles) || !Array.isArray(d.rentals) || !d.settings) { toast('That file is not a car rental backup.', 'err'); return; }
     if (!confirm(`Restore backup "${file.name}"? This replaces all current records.`)) return;
+    if (CLOUD) { d.users = db.users; d.roles = db.roles; Cloud.allowBulk = true; }
     const b = blank(); db = Object.assign(b, d); db.settings = Object.assign(b.settings, d.settings); db.seq = Object.assign(b.seq, d.seq || {}); ensureSecurity();
+    db.audit.forEach(a => { if (!a.id) a.id = uid(); });
+    if (CLOUD) Cloud.reserveAll().catch(() => {});
     audit('Restore', 'Database', file.name, 'Restored from backup'); view = 'dashboard'; render(); toast('Backup restored');
   });
 });
@@ -2131,14 +2440,12 @@ $('#fileIn').addEventListener('change', e => {
    SAMPLE DATA — realistic Port Vila operation, dated relative to today
    ===================================================================== */
 function seed() {
-  seeding = true; const keepSec = db && db.users && db.users.length ? {users: db.users, roles: db.roles, settings: db.settings} : null;
+  seeding = true; const keepSec = db && db.users && db.users.length ? {users: db.users, roles: db.roles, settings: db.settings, audit: CLOUD ? db.audit : []} : null;
   db = blank(); if (keepSec) Object.assign(db, keepSec); ensureSecurity();
   let s = 20261103; const rnd = () => (s = (s * 1664525 + 1013904223) % 4294967296) / 4294967296;
   const ri = (a, b) => a + Math.floor(rnd() * (b - a + 1)), pick = a => a[Math.floor(rnd() * a.length)];
   const now = new Date(), DAY = 864e5, H = 36e5, T = now.getTime();
-  const CATS = [['Economy', 'Swift / Yaris class — 5 seats, low fuel use', 6500, 39000, 150000, 15000], ['Compact SUV', 'RAV4 class — tourists and families', 12000, 72000, 280000, 20000],
-    ['4WD Pick-up', 'Hilux / Ranger double cab — roads outside town', 14000, 84000, 330000, 30000], ['Minivan / Van', 'Noah / Hiace — groups, events, transfers', 16000, 96000, 380000, 30000],
-    ['Premium SUV', 'Land Cruiser Prado class — executive and VIP', 22000, 132000, 520000, 50000]];
+  const CATS = SEED_CATS;
   db.categories = CATS.map(c => ({id: uid(), name: c[0], description: c[1], daily: c[2], weekly: c[3], monthly: c[4], deposit: c[5], active: true}));
   const VEH = [[0, 'Suzuki', 'Swift', 2022, 'Automatic', 'Petrol', 5, 1800000], [0, 'Suzuki', 'Swift', 2022, 'Automatic', 'Petrol', 5, 1800000], [0, 'Toyota', 'Yaris', 2021, 'Automatic', 'Petrol', 5, 2000000],
     [0, 'Kia', 'Picanto', 2023, 'Manual', 'Petrol', 5, 1600000], [1, 'Toyota', 'RAV4', 2022, 'Automatic', 'Petrol', 5, 4200000], [1, 'Toyota', 'RAV4', 2023, 'Automatic', 'Hybrid', 5, 4600000],
@@ -2235,14 +2542,14 @@ function seed() {
     const v = db.vehicles.find(v => vStatus(v) === 'Available' && !vehicleConflicts(v.id, dtLocal(st), dtLocal(en)).length);
     if (v) createBooking({customerId: db.customers[3].id, categoryId: v.categoryId, vehicleId: v.id, pickup: dtLocal(st), ret: dtLocal(en), pickupLoc: 'Bauerfield Airport', returnLoc: 'Port Vila Office', source: 'Website', rate: '', status: 'Confirmed', created: dtLocal(new Date(T - 12 * DAY))}); }
   seeding = false;
-  db.audit = [{ts: dtLocal(new Date()), user: 'System', action: 'Seed', entity: 'Database', ref: '', details: 'Sample data loaded — replace with your own records or clear them in Settings & data'}];
+  db.audit = [{id: uid(), ts: dtLocal(new Date()), user: CLOUD ? whoName() : 'System', action: 'Seed', entity: 'Database', ref: '', details: 'Sample data loaded — replace with your own records or clear them in Settings & data'}].concat(keepSec && keepSec.audit ? keepSec.audit : []);
   save();
 }
 
 /* ---------- start ---------- */
 load();
 loadSession();
-render();
+if (CLOUD) { const saved = SESSION; SESSION = null; showLogin(); cloudBoot(saved); } else render();
 </script>
 </body>
 </html>
