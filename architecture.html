@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CRMS Database Architecture</title>
+<style>
+:root{
+  --bg:#f6f7f9; --surface:#ffffff; --ink:#1b2430; --muted:#5b6675; --line:#dde2e8;
+  --accent:#0b5d7a; --accent-soft:#e3f0f5; --warn:#9a5b00; --warn-soft:#fff4e0;
+  --crit:#a3261d; --crit-soft:#fdeceb; --ok:#1f6b3a; --ok-soft:#e7f4ec;
+  --code-bg:#0f1720; --code-ink:#d7e2ee;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f141a; --surface:#161d25; --ink:#e4e9ef; --muted:#9aa6b4; --line:#2a3440;
+    --accent:#5fb6d6; --accent-soft:#16303b; --warn:#f0b35a; --warn-soft:#33270f;
+    --crit:#f08a80; --crit-soft:#3a1a18; --ok:#7fcf9a; --ok-soft:#14301f;
+    --code-bg:#0a0f14; --code-ink:#d7e2ee;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+a{color:var(--accent)}
+.layout{display:grid;grid-template-columns:260px 1fr;max-width:1280px;margin:0 auto}
+nav{position:sticky;top:0;height:100vh;overflow-y:auto;padding:24px 16px;border-right:1px solid var(--line)}
+nav h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
+nav ol{list-style:none;margin:0;padding:0;counter-reset:n}
+nav li a{display:block;padding:6px 10px;border-radius:6px;text-decoration:none;color:var(--ink);font-size:14px}
+nav li a:hover,nav li a.active{background:var(--accent-soft);color:var(--accent)}
+main{padding:32px 40px 80px;min-width:0}
+header.cover{background:var(--surface);border:1px solid var(--line);border-left:6px solid var(--accent);border-radius:10px;padding:28px 32px;margin-bottom:28px}
+header.cover .kicker{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+header.cover h1{margin:6px 0 4px;font-size:30px;line-height:1.2}
+header.cover .sub{color:var(--accent);font-weight:600;margin-bottom:18px}
+dl.meta{display:grid;grid-template-columns:max-content 1fr;gap:6px 18px;margin:0}
+dl.meta dt{color:var(--muted)} dl.meta dd{margin:0;font-weight:500}
+.version{margin-top:16px;font-size:13px;color:var(--muted)}
+section{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:24px 28px;margin-bottom:22px;scroll-margin-top:16px}
+section h2{margin:0 0 14px;font-size:21px}
+section h2 .num{color:var(--accent);margin-right:8px}
+h3{font-size:16px;margin:22px 0 8px}
+p{margin:0 0 12px}
+ul{margin:0 0 12px;padding-left:20px} li{margin:3px 0}
+.table-wrap{overflow-x:auto;margin:8px 0 16px;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:var(--accent-soft);color:var(--ink);font-weight:600;white-space:nowrap}
+tr:last-child td{border-bottom:none}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+tr.total td{font-weight:700;background:var(--accent-soft)}
+td:first-child{font-weight:500}
+.callout{border-radius:8px;padding:12px 16px;margin:12px 0 16px;border-left:4px solid}
+.callout.info{background:var(--accent-soft);border-color:var(--accent)}
+.callout.warn{background:var(--warn-soft);border-color:var(--warn)}
+.callout.crit{background:var(--crit-soft);border-color:var(--crit)}
+.callout.ok{background:var(--ok-soft);border-color:var(--ok)}
+.callout strong:first-child{display:block;margin-bottom:2px}
+pre{background:var(--code-bg);color:var(--code-ink);padding:14px 16px;border-radius:8px;overflow-x:auto;font:13px/1.5 ui-monospace,SFMono-Regular,Consolas,Menlo,monospace;margin:8px 0 16px}
+code{font-family:ui-monospace,SFMono-Regular,Consolas,Menlo,monospace;font-size:.92em}
+p code,li code,td code{background:var(--accent-soft);padding:1px 5px;border-radius:4px}
+.badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600}
+.b-ok{background:var(--ok-soft);color:var(--ok)} .b-warn{background:var(--warn-soft);color:var(--warn)} .b-crit{background:var(--crit-soft);color:var(--crit)}
+.steps td:first-child{font-weight:700;color:var(--accent);width:40px}
+details{border:1px solid var(--line);border-radius:8px;margin:10px 0}
+details summary{cursor:pointer;padding:10px 14px;font-weight:600}
+details pre{margin:0 10px 10px}
+.toolbar{display:flex;gap:8px;justify-content:flex-end;margin-bottom:12px}
+.toolbar button{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px 12px;cursor:pointer;font:inherit;font-size:13px}
+.toolbar button:hover{border-color:var(--accent);color:var(--accent)}
+footer{text-align:center;color:var(--muted);font-size:13px;margin-top:30px}
+@media (max-width:900px){
+  .layout{grid-template-columns:1fr}
+  nav{position:static;height:auto;border-right:none;border-bottom:1px solid var(--line)}
+  main{padding:20px 16px 60px}
+  section{padding:18px 16px}
+  header.cover{padding:20px 18px}
+  header.cover h1{font-size:24px}
+}
+@media print{
+  nav,.toolbar{display:none}
+  .layout{display:block}
+  body{background:#fff;color:#000}
+  section,header.cover{break-inside:avoid-page;border-color:#ccc}
+  details{border:none} details>summary{display:none}
+  pre{background:#f3f3f3;color:#000;white-space:pre-wrap}
+}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav aria-label="Document contents">
+  <h2>Contents</h2>
+  <ol id="toc">
+    <li><a href="#s1">1. Executive recommendation</a></li>
+    <li><a href="#s2">2. Business modules</a></li>
+    <li><a href="#s3">3. Table inventory</a></li>
+    <li><a href="#s4">4. Relationships &amp; lifecycle</a></li>
+    <li><a href="#s5">5. Availability &amp; business rules</a></li>
+    <li><a href="#s6">6. Financial model</a></li>
+    <li><a href="#s7">7. Dashboard &amp; reporting</a></li>
+    <li><a href="#s8">8. Engine, file layout &amp; config</a></li>
+    <li><a href="#s9">9. Storage quota &amp; monitoring</a></li>
+    <li><a href="#s10">10. Core SQLite schema</a></li>
+    <li><a href="#s11">11. Security &amp; audit</a></li>
+    <li><a href="#s12">12. Backup &amp; recovery</a></li>
+    <li><a href="#s13">13. Application architecture</a></li>
+    <li><a href="#s14">14. Development &amp; acceptance</a></li>
+    <li><a href="#s15">15. Technical limitations</a></li>
+  </ol>
+</nav>
+
+<main>
+<div class="toolbar">
+  <button type="button" id="expandAll">Expand all code</button>
+  <button type="button" onclick="window.print()">Print</button>
+</div>
+
+<header class="cover">
+  <div class="kicker">Database Architecture</div>
+  <h1>Car Rental Management System</h1>
+  <div class="sub">SQL Database Architecture &amp; Implementation Blueprint</div>
+  <dl class="meta">
+    <dt>Database engine</dt><dd>SQLite 3</dd>
+    <dt>Database arrangement</dt><dd>Standalone SQL database file</dd>
+    <dt>Main database file</dt><dd><code>car_rental.db</code></dd>
+    <dt>Maximum live database capacity</dt><dd>50 GB (50,000,000,000 bytes)</dd>
+    <dt>Documents and backups</dt><dd>Managed separately from the SQL database</dd>
+    <dt>Intended use</dt><dd>Fleet, customers, reservations, rentals, finance, maintenance and reporting</dd>
+  </dl>
+  <div class="version">Version 1.0 · 3 November 2026 · Consolidated planning document. This is an architecture and schema blueprint; production deployment requires completion, testing and security review of the full application and database.</div>
+</header>
+
+<section aria-labelledby="summary">
+  <h2 id="summary">Executive summary</h2>
+  <p>The proposed system is a modular Car Rental Management System (CRMS) backed by a standalone SQLite relational database file. The live SQL database is allocated a maximum capacity of 50 GB. Customer documents, photographs, generated PDFs, exports and backups are stored outside the SQL database under separately managed storage policies.</p>
+  <div class="callout warn"><strong>Access rule</strong>The application should access the database through a controlled backend service. A browser-based HTML/JavaScript front end must not open or manipulate the SQLite file directly.</div>
+</section>
+
+<section id="s1">
+  <h2><span class="num">1</span>Executive recommendation</h2>
+  <p><strong>Recommended foundation:</strong> SQLite 3 as an embedded SQL engine, with the database stored as a separate file named <code>car_rental.db</code>. SQLite provides relational tables, SQL queries, indexes, constraints and transactions without requiring a separate database server. It is appropriate for a single-computer deployment or a small installation where all clients access one host application service.</p>
+  <div class="callout crit"><strong>Scale threshold</strong>If the business requires multiple branches or many computers writing concurrently over a network, reassess the design and consider PostgreSQL as a central database server. Do not share an active SQLite database file directly over a network drive.</div>
+</section>
+
+<section id="s2">
+  <h2><span class="num">2</span>Business modules and information requirements</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Module</th><th>Information and functions to manage</th></tr></thead>
+    <tbody>
+      <tr><td>Fleet and vehicle management</td><td>Fleet number; registration; VIN/chassis; make, model and year; category; transmission; fuel; seating; odometer; acquisition details; status; branch and location; photographs; registration and insurance expiry.</td></tr>
+      <tr><td>Customer management</td><td>Customer ID; legal name; date of birth where necessary; nationality; address; telephone; email; emergency contact; licence details; verification status; rental history.</td></tr>
+      <tr><td>Reservations and bookings</td><td>Booking reference; customer; requested category or allocated vehicle; booking date; pickup and return dates/times; locations; quoted rate; source; status; special requests; cancellations.</td></tr>
+      <tr><td>Rental agreements and handover</td><td>Agreement number; booking; customer; vehicle; rental term; rate; authorised drivers; odometer and fuel at collection; inspection; existing damage; deposit; terms; customer acceptance.</td></tr>
+      <tr><td>Payments and finance</td><td>Invoices; invoice lines; rental charges; deposits; payment methods; payment dates; receipts; refunds; outstanding balances; discounts; taxes where applicable.</td></tr>
+      <tr><td>Vehicle returns and damage</td><td>Actual return time; odometer; fuel; condition; new damage; cleaning; late return; excess mileage; fuel charges; deposit deductions; final invoice; release status.</td></tr>
+      <tr><td>Maintenance and repairs</td><td>Service schedule; work orders; service date; odometer; repair details; supplier/workshop; cost; downtime; next service due; maintenance status.</td></tr>
+      <tr><td>Insurance and compliance</td><td>Insurer; policy number; coverage; policy dates; registration; roadworthiness; accidents; claims; traffic infringements; renewal alerts.</td></tr>
+      <tr><td>Staff and access management</td><td>Staff; user accounts; roles; permissions; branch assignments; login and activity history; account status.</td></tr>
+      <tr><td>Reports and business intelligence</td><td>Revenue; utilisation; fleet availability; bookings; cancellations; outstanding invoices; maintenance cost; profitability; renewal alerts; branch performance.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="s3">
+  <h2><span class="num">3</span>Relational database table inventory</h2>
+  <p>Each table should have a stable primary key. Related tables should use foreign keys. Use separate tables for repeating information (for example, customer documents, payments, inspection items and invoice lines) rather than storing multiple values in one field.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Database group</th><th>Recommended tables</th></tr></thead>
+    <tbody>
+      <tr><td>Fleet</td><td><code>vehicles</code> <code>vehicle_categories</code> <code>vehicle_brands</code> <code>vehicle_models</code> <code>vehicle_photos</code> <code>vehicle_locations</code> <code>vehicle_registration</code></td></tr>
+      <tr><td>Customers</td><td><code>customers</code> <code>customer_documents</code> <code>customer_contacts</code></td></tr>
+      <tr><td>Reservations</td><td><code>bookings</code> <code>booking_items</code> <code>booking_status_history</code></td></tr>
+      <tr><td>Rentals</td><td><code>rental_agreements</code> <code>rental_drivers</code> <code>rental_extensions</code></td></tr>
+      <tr><td>Inspections and damage</td><td><code>vehicle_inspections</code> <code>inspection_items</code> <code>vehicle_damage</code> <code>damage_photos</code></td></tr>
+      <tr><td>Finance</td><td><code>invoices</code> <code>invoice_items</code> <code>payments</code> <code>deposits</code> <code>refunds</code> <code>additional_charges</code> <code>rental_rate_history</code></td></tr>
+      <tr><td>Maintenance</td><td><code>maintenance_records</code> <code>maintenance_schedule</code> <code>repair_orders</code> <code>service_providers</code></td></tr>
+      <tr><td>Compliance</td><td><code>insurance_records</code> <code>accident_records</code> <code>insurance_claims</code> <code>traffic_infringements</code></td></tr>
+      <tr><td>Administration</td><td><code>staff</code> <code>users</code> <code>roles</code> <code>permissions</code> <code>role_permissions</code> <code>branches</code></td></tr>
+      <tr><td>Governance and configuration</td><td><code>audit_logs</code> <code>system_events</code> <code>notifications</code> <code>system_settings</code> <code>schema_migrations</code></td></tr>
+      <tr><td>Storage and backup</td><td><code>storage_usage</code> <code>storage_alerts</code> <code>backup_history</code> <code>document_metadata</code></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="s4">
+  <h2><span class="num">4</span>Database relationships and rental lifecycle</h2>
+  <p>The same customer, vehicle and rental agreement records should remain linked through the full rental lifecycle. Avoid copying customer or vehicle master data into every transaction. Store references to the master records and preserve a snapshot of contract-specific terms, such as the agreed rate, within the agreement.</p>
+  <div class="table-wrap"><table class="steps">
+    <thead><tr><th>Step</th><th>Process</th><th>Key records</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Register customer and verify required documents</td><td>customers; customer_documents</td></tr>
+      <tr><td>2</td><td>Create booking and check requested dates</td><td>bookings; booking_items</td></tr>
+      <tr><td>3</td><td>Check availability and allocate a vehicle</td><td>vehicles; bookings; rental_agreements</td></tr>
+      <tr><td>4</td><td>Generate agreement and record collection inspection</td><td>rental_agreements; vehicle_inspections; inspection_items</td></tr>
+      <tr><td>5</td><td>Collect rental charges and deposit</td><td>invoices; invoice_items; payments; deposits</td></tr>
+      <tr><td>6</td><td>Manage rental, extension or incident</td><td>rental_extensions; accident_records; audit_logs</td></tr>
+      <tr><td>7</td><td>Inspect returned vehicle and record new damage</td><td>vehicle_inspections; vehicle_damage</td></tr>
+      <tr><td>8</td><td>Calculate final charges, settle balance and deposit</td><td>invoices; payments; refunds; additional_charges</td></tr>
+      <tr><td>9</td><td>Release vehicle only when return checks are complete</td><td>vehicles; inspection records; maintenance records</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Principal relationships</h3>
+  <ul>
+    <li>One customer can make many bookings.</li>
+    <li>A booking may convert into one or more rental agreements, subject to the business model.</li>
+    <li>A vehicle can have many rental agreements over time, but not overlapping active allocations.</li>
+    <li>A rental agreement can have multiple invoices, payments, inspections and charges.</li>
+    <li>A vehicle can have many maintenance, insurance, registration and damage records.</li>
+    <li>A user can create many audit-log entries.</li>
+  </ul>
+</section>
+
+<section id="s5">
+  <h2><span class="num">5</span>Vehicle availability and business rules</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Vehicle status</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge b-ok">Available</span></td><td>Ready for rental after required checks.</td></tr>
+      <tr><td><span class="badge b-warn">Reserved</span></td><td>Allocated to a confirmed future booking.</td></tr>
+      <tr><td><span class="badge b-warn">Rented</span></td><td>Currently with a customer under an active agreement.</td></tr>
+      <tr><td><span class="badge b-warn">Return Pending</span></td><td>Returned but not yet checked and released.</td></tr>
+      <tr><td><span class="badge b-warn">Under Inspection</span></td><td>Awaiting condition assessment.</td></tr>
+      <tr><td><span class="badge b-crit">Maintenance</span></td><td>Under servicing or repair.</td></tr>
+      <tr><td><span class="badge b-crit">Accident Hold</span></td><td>Unavailable pending accident assessment or repair.</td></tr>
+      <tr><td><span class="badge b-crit">Unavailable</span></td><td>Temporarily withdrawn from rental.</td></tr>
+      <tr><td><span class="badge b-crit">Retired</span></td><td>Permanently removed from the active fleet.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout info"><strong>Availability logic</strong>Availability should be calculated from booking and agreement date ranges, vehicle status, maintenance blocks and inspection release status. A manually selected "Available" status must not override a conflicting active rental or maintenance period.</div>
+  <h3>Core integrity rules</h3>
+  <ul>
+    <li>Vehicle registration and fleet numbers must be unique.</li>
+    <li>Customer numbers, booking references, agreement numbers and invoice numbers must be unique.</li>
+    <li>Return date/time must be later than pickup date/time.</li>
+    <li>Payments and monetary quantities must not be negative.</li>
+    <li>A vehicle cannot be allocated to overlapping rentals.</li>
+    <li>Vehicles under maintenance, accident hold or inspection cannot be handed over.</li>
+    <li>Completed agreements and financial transactions should not be permanently deleted; corrections should use authorised reversals or adjustments.</li>
+    <li>Expired or unverified documents should trigger an operational validation before handover.</li>
+  </ul>
+</section>
+
+<section id="s6">
+  <h2><span class="num">6</span>Financial model and calculations</h2>
+  <p>The financial model should keep rental income, security deposits, refunds and other liabilities separate. A refundable security deposit is not rental revenue. Record every payment and refund as a transaction and reconcile them against invoices and deposits.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Illustrative invoice item</th><th class="num">Amount (VUV)</th></tr></thead>
+    <tbody>
+      <tr><td>Toyota RAV4 rental: 5 days × VUV 12,000</td><td class="num">60,000</td></tr>
+      <tr><td>Additional driver</td><td class="num">2,500</td></tr>
+      <tr><td>Airport delivery</td><td class="num">3,000</td></tr>
+      <tr class="total"><td>Subtotal</td><td class="num">65,500</td></tr>
+      <tr><td>Security deposit (held separately)</td><td class="num">20,000</td></tr>
+      <tr class="total"><td>Illustrative amount collected</td><td class="num">85,500</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Calculations and capabilities</h3>
+  <ul>
+    <li>Daily, weekly and monthly rental rates; preserve the historical rate agreed for each contract.</li>
+    <li>Rental duration and pro-rata rules, including clear policies for partial days.</li>
+    <li>Seasonal, weekend, category-specific, corporate and negotiated rates.</li>
+    <li>Late-return, extra-kilometre, fuel replacement, cleaning and damage charges.</li>
+    <li>Discounts and applicable taxes, configured according to local requirements.</li>
+    <li>Partial payments, outstanding balances, deposit deductions and refunds.</li>
+    <li>Invoice, receipt and credit-note generation with traceable references.</li>
+  </ul>
+  <div class="callout warn"><strong>Money storage</strong>Store money as integer minor currency units or use an explicit fixed-precision decimal strategy. Do not use binary floating-point values for financial calculations. Confirm the applicable currency precision and tax rules before implementation.</div>
+</section>
+
+<section id="s7">
+  <h2><span class="num">7</span>Dashboard and management reporting</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Dashboard KPI</th><th>Management purpose</th></tr></thead>
+    <tbody>
+      <tr><td>Total fleet</td><td>Number of registered vehicles.</td></tr>
+      <tr><td>Available vehicles</td><td>Vehicles ready for hire.</td></tr>
+      <tr><td>Currently rented</td><td>Vehicles with customers.</td></tr>
+      <tr><td>Reserved vehicles</td><td>Upcoming confirmed allocations.</td></tr>
+      <tr><td>Vehicles in maintenance</td><td>Fleet downtime and repair workload.</td></tr>
+      <tr><td>Today's bookings and collections</td><td>Daily operating activity and cash collection.</td></tr>
+      <tr><td>Monthly revenue</td><td>Rental income over the selected period.</td></tr>
+      <tr><td>Outstanding payments</td><td>Unpaid customer balances.</td></tr>
+      <tr><td>Upcoming returns</td><td>Vehicles due back and potentially overdue.</td></tr>
+      <tr><td>Expiring insurance and registration</td><td>Renewals and compliance follow-up.</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Recommended charts and reports</h3>
+  <ul>
+    <li>Monthly rental revenue and revenue by branch.</li>
+    <li>Vehicle utilisation percentage and availability by date.</li>
+    <li>Revenue and profitability by vehicle or vehicle category.</li>
+    <li>Most frequently rented vehicles and customer booking trends.</li>
+    <li>Maintenance expenditure and vehicle downtime.</li>
+    <li>Booking conversion, cancellations and no-show trends.</li>
+    <li>Outstanding invoices, deposits held and refunds due.</li>
+  </ul>
+</section>
+
+<section id="s8">
+  <h2><span class="num">8</span>SQL engine, file layout and configuration</h2>
+  <p><strong>Selected engine:</strong> SQLite 3. <strong>Main database file:</strong> <code>car_rental.db</code>. <strong>Recommended initial page size:</strong> 4096 bytes. Enable foreign-key enforcement on every database connection. WAL mode can improve reader/writer concurrency, but SQLite still permits only one writer at a time.</p>
+<pre>CAR-RENTAL-SYSTEM/
+├── APPLICATION/
+│   ├── index.html
+│   └── assets/
+│       ├── css/
+│       ├── js/
+│       └── modules/
+├── DATABASE/
+│   ├── car_rental.db
+│   ├── car_rental.db-wal
+│   ├── car_rental.db-shm
+│   └── migrations/
+├── DOCUMENT_STORAGE/
+│   ├── customer_documents/
+│   ├── vehicle_photos/
+│   ├── rental_agreements/
+│   ├── invoices/
+│   ├── inspection_photos/
+│   ├── insurance_documents/
+│   └── maintenance_records/
+├── BACKUPS/
+│   ├── daily/
+│   ├── weekly/
+│   └── monthly/
+├── EXPORTS/
+└── SYSTEM_LOGS/</pre>
+  <div class="callout crit"><strong>WAL and SHM files</strong>These are working files and must remain managed by SQLite. Do not delete them manually while the database is active. Use SQLite's online backup API or another SQLite-consistent backup method.</div>
+</section>
+
+<section id="s9">
+  <h2><span class="num">9</span>Storage quota and monitoring architecture</h2>
+  <p>The live SQL database has a maximum allocated capacity of 50,000,000,000 bytes (50 GB decimal). This is an application-enforced quota, supplemented by SQLite's page-count limit and operating-system free-space checks. It is not the same as the total disk space used by documents, WAL files, temporary files or backups.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Storage component</th><th>Policy</th></tr></thead>
+    <tbody>
+      <tr><td>Main SQL database</td><td>Maximum 50 GB live database page allocation.</td></tr>
+      <tr><td>WAL/SHM and temporary files</td><td>Monitor separately; reserve adequate working disk space.</td></tr>
+      <tr><td>Customer documents and photos</td><td>Separate document storage quota and file-size limits.</td></tr>
+      <tr><td>PDF agreements and invoices</td><td>Separate document storage; retain references/metadata in SQL.</td></tr>
+      <tr><td>Backups</td><td>Separate backup capacity and retention policy.</td></tr>
+      <tr><td>Exports and reports</td><td>Temporary storage with retention and cleanup policy.</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Suggested capacity alerts</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Usage</th><th>Level</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td>Below 70%</td><td><span class="badge b-ok">Normal</span></td><td>Continue normal monitoring.</td></tr>
+      <tr><td>70%</td><td><span class="badge b-warn">Warning</span></td><td>Notify administrator; review growth trend.</td></tr>
+      <tr><td>90%</td><td><span class="badge b-crit">Critical</span></td><td>Restrict large imports; plan capacity action.</td></tr>
+      <tr><td>98%</td><td><span class="badge b-crit">Near limit</span></td><td>Block nonessential writes/uploads; urgent administrator action.</td></tr>
+      <tr><td>At 50 GB</td><td><span class="badge b-crit">Limit reached</span></td><td>Reject writes that would exceed quota safely; preserve read/export and recovery functions where possible.</td></tr>
+    </tbody>
+  </table></div>
+  <h3>SQLite page-limit calculation</h3>
+  <p>With a 4096-byte page size, the page count is <code>floor(50,000,000,000 ÷ 4096) = 12,207,031</code> pages. That gives a maximum database size of <strong>12,207,031 × 4096 = 49,999,998,976 bytes</strong>, which stays just under the 50 GB decimal quota. Compute and verify this integer at database initialisation.</p>
+<pre>PRAGMA page_size = 4096;
+PRAGMA max_page_count = 12207031;
+PRAGMA foreign_keys = ON;
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = FULL;</pre>
+  <div class="callout warn"><strong>What the page limit does not cover</strong>The page-count limit constrains database pages, not every byte associated with SQLite operation. Monitor database file size, WAL growth, temporary files and free disk space. The application should estimate the size impact of large writes and check capacity before committing. Do not promise a mathematically strict 50 GB total footprint unless the operating system also enforces a disk quota over the database working directory.</div>
+  <h3>Storage monitoring tables</h3>
+  <details open><summary>storage_usage · storage_alerts · backup_history</summary>
+<pre>CREATE TABLE storage_usage (
+  storage_id          INTEGER PRIMARY KEY,
+  measured_at         TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  database_bytes      INTEGER NOT NULL,
+  wal_bytes           INTEGER DEFAULT 0,
+  document_bytes      INTEGER DEFAULT 0,
+  backup_bytes        INTEGER DEFAULT 0,
+  maximum_bytes       INTEGER NOT NULL,
+  utilisation_percent NUMERIC
+);
+
+CREATE TABLE storage_alerts (
+  alert_id        INTEGER PRIMARY KEY,
+  alert_level     TEXT NOT NULL,
+  alert_message   TEXT NOT NULL,
+  created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  acknowledged_by INTEGER,
+  acknowledged_at TEXT
+);
+
+CREATE TABLE backup_history (
+  backup_id           INTEGER PRIMARY KEY,
+  backup_filename     TEXT NOT NULL,
+  backup_datetime     TEXT NOT NULL,
+  backup_size_bytes   INTEGER,
+  backup_status       TEXT NOT NULL,
+  verification_status TEXT,
+  backup_location     TEXT
+);</pre></details>
+  <p>These tables record storage measurements and alerts. They do not enforce the quota by themselves; enforcement belongs in the backend, SQLite configuration and operating-system storage controls.</p>
+</section>
+
+<section id="s10">
+  <h2><span class="num">10</span>Core SQLite schema examples</h2>
+  <p>The following compact schema is an implementation starting point for core entities. It is illustrative rather than a complete production schema. Expand it with the additional module tables listed in Section 3, indexes, triggers, validation logic and migration scripts.</p>
+
+  <details open><summary>Reference tables: vehicle_categories · branches</summary>
+<pre>-- CAR RENTAL MANAGEMENT SYSTEM
+-- SQLite 3 core schema example
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE vehicle_categories (
+  category_id        INTEGER PRIMARY KEY,
+  category_name      TEXT NOT NULL UNIQUE,
+  description        TEXT,
+  default_daily_rate INTEGER NOT NULL DEFAULT 0,
+  is_active          INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE branches (
+  branch_id   INTEGER PRIMARY KEY,
+  branch_name TEXT NOT NULL,
+  address     TEXT,
+  telephone   TEXT,
+  email       TEXT,
+  is_active   INTEGER NOT NULL DEFAULT 1
+);</pre></details>
+
+  <details><summary>Fleet: vehicles</summary>
+<pre>CREATE TABLE vehicles (
+  vehicle_id          INTEGER PRIMARY KEY,
+  fleet_number        TEXT NOT NULL UNIQUE,
+  registration_number TEXT NOT NULL UNIQUE,
+  vin                 TEXT UNIQUE,
+  make                TEXT NOT NULL,
+  model               TEXT NOT NULL,
+  manufacture_year    INTEGER,
+  category_id         INTEGER NOT NULL,
+  branch_id           INTEGER,
+  transmission        TEXT,
+  fuel_type           TEXT,
+  seating_capacity    INTEGER,
+  current_odometer    INTEGER NOT NULL DEFAULT 0,
+  acquisition_date    TEXT,
+  purchase_price      INTEGER NOT NULL DEFAULT 0,
+  vehicle_status      TEXT NOT NULL DEFAULT 'Available',
+  created_at          TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (category_id) REFERENCES vehicle_categories(category_id),
+  FOREIGN KEY (branch_id)   REFERENCES branches(branch_id),
+  CHECK (current_odometer >= 0),
+  CHECK (purchase_price >= 0)
+);</pre></details>
+
+  <details><summary>Customers: customers · customer_documents</summary>
+<pre>CREATE TABLE customers (
+  customer_id         INTEGER PRIMARY KEY,
+  customer_number     TEXT NOT NULL UNIQUE,
+  first_name          TEXT NOT NULL,
+  last_name           TEXT NOT NULL,
+  date_of_birth       TEXT,
+  nationality         TEXT,
+  telephone           TEXT NOT NULL,
+  email               TEXT,
+  residential_address TEXT,
+  emergency_contact   TEXT,
+  customer_status     TEXT NOT NULL DEFAULT 'Active',
+  created_at          TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE customer_documents (
+  document_id         INTEGER PRIMARY KEY,
+  customer_id         INTEGER NOT NULL,
+  document_type       TEXT NOT NULL,
+  document_number     TEXT,
+  issuing_country     TEXT,
+  issue_date          TEXT,
+  expiry_date         TEXT,
+  file_path           TEXT,
+  verification_status TEXT NOT NULL DEFAULT 'Pending',
+  FOREIGN KEY (customer_id) REFERENCES customers(customer_id)
+);</pre></details>
+
+  <details><summary>Reservations: bookings · booking_items</summary>
+<pre>CREATE TABLE bookings (
+  booking_id        INTEGER PRIMARY KEY,
+  booking_reference TEXT NOT NULL UNIQUE,
+  customer_id       INTEGER NOT NULL,
+  booking_date      TEXT NOT NULL,
+  pickup_datetime   TEXT NOT NULL,
+  return_datetime   TEXT NOT NULL,
+  pickup_location   TEXT,
+  return_location   TEXT,
+  booking_status    TEXT NOT NULL DEFAULT 'Pending',
+  booking_source    TEXT,
+  special_requests  TEXT,
+  FOREIGN KEY (customer_id) REFERENCES customers(customer_id),
+  CHECK (return_datetime > pickup_datetime)
+);
+
+CREATE TABLE booking_items (
+  booking_item_id   INTEGER PRIMARY KEY,
+  booking_id        INTEGER NOT NULL,
+  vehicle_id        INTEGER,
+  category_id       INTEGER NOT NULL,
+  agreed_daily_rate INTEGER NOT NULL CHECK (agreed_daily_rate >= 0),
+  FOREIGN KEY (booking_id)  REFERENCES bookings(booking_id),
+  FOREIGN KEY (vehicle_id)  REFERENCES vehicles(vehicle_id),
+  FOREIGN KEY (category_id) REFERENCES vehicle_categories(category_id)
+);</pre></details>
+
+  <details><summary>Rentals: rental_agreements</summary>
+<pre>CREATE TABLE rental_agreements (
+  agreement_id      INTEGER PRIMARY KEY,
+  agreement_number  TEXT NOT NULL UNIQUE,
+  booking_id        INTEGER,
+  customer_id       INTEGER NOT NULL,
+  vehicle_id        INTEGER NOT NULL,
+  start_datetime    TEXT NOT NULL,
+  expected_return   TEXT NOT NULL,
+  actual_return     TEXT,
+  starting_odometer INTEGER NOT NULL,
+  ending_odometer   INTEGER,
+  daily_rate        INTEGER NOT NULL CHECK (daily_rate >= 0),
+  security_deposit  INTEGER NOT NULL DEFAULT 0,
+  agreement_status  TEXT NOT NULL DEFAULT 'Active',
+  FOREIGN KEY (booking_id)  REFERENCES bookings(booking_id),
+  FOREIGN KEY (customer_id) REFERENCES customers(customer_id),
+  FOREIGN KEY (vehicle_id)  REFERENCES vehicles(vehicle_id),
+  CHECK (expected_return > start_datetime),
+  CHECK (starting_odometer >= 0),
+  CHECK (ending_odometer IS NULL OR ending_odometer >= starting_odometer)
+);</pre></details>
+
+  <details><summary>Finance: invoices · payments</summary>
+<pre>CREATE TABLE invoices (
+  invoice_id     INTEGER PRIMARY KEY,
+  invoice_number TEXT NOT NULL UNIQUE,
+  agreement_id   INTEGER NOT NULL,
+  invoice_date   TEXT NOT NULL,
+  subtotal       INTEGER NOT NULL DEFAULT 0,
+  tax_amount     INTEGER NOT NULL DEFAULT 0,
+  total_amount   INTEGER NOT NULL DEFAULT 0,
+  amount_paid    INTEGER NOT NULL DEFAULT 0,
+  balance_due    INTEGER NOT NULL DEFAULT 0,
+  invoice_status TEXT NOT NULL DEFAULT 'Unpaid',
+  FOREIGN KEY (agreement_id) REFERENCES rental_agreements(agreement_id),
+  CHECK (subtotal >= 0 AND tax_amount >= 0),
+  CHECK (total_amount >= 0 AND amount_paid >= 0)
+);
+
+CREATE TABLE payments (
+  payment_id         INTEGER PRIMARY KEY,
+  invoice_id         INTEGER NOT NULL,
+  payment_reference  TEXT UNIQUE,
+  payment_date       TEXT NOT NULL,
+  payment_method     TEXT NOT NULL,
+  amount             INTEGER NOT NULL CHECK (amount > 0),
+  transaction_status TEXT NOT NULL DEFAULT 'Completed',
+  received_by        INTEGER,
+  FOREIGN KEY (invoice_id) REFERENCES invoices(invoice_id)
+);</pre></details>
+
+  <details><summary>Maintenance: maintenance_records</summary>
+<pre>CREATE TABLE maintenance_records (
+  maintenance_id        INTEGER PRIMARY KEY,
+  vehicle_id            INTEGER NOT NULL,
+  service_date          TEXT NOT NULL,
+  odometer_reading      INTEGER,
+  maintenance_type      TEXT,
+  description           TEXT,
+  service_provider      TEXT,
+  maintenance_cost      INTEGER NOT NULL DEFAULT 0,
+  next_service_date     TEXT,
+  next_service_odometer INTEGER,
+  FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id),
+  CHECK (maintenance_cost >= 0)
+);</pre></details>
+
+  <details><summary>Administration: users · audit_logs</summary>
+<pre>-- Create users before audit_logs in the full schema.
+CREATE TABLE users (
+  user_id       INTEGER PRIMARY KEY,
+  username      TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  staff_name    TEXT NOT NULL,
+  role_id       INTEGER,
+  is_active     INTEGER NOT NULL DEFAULT 1,
+  created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE audit_logs (
+  audit_id         INTEGER PRIMARY KEY,
+  user_id          INTEGER,
+  action           TEXT NOT NULL,
+  table_name       TEXT,
+  record_id        INTEGER,
+  action_timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  old_values       TEXT,
+  new_values       TEXT,
+  FOREIGN KEY (user_id) REFERENCES users(user_id)
+);</pre></details>
+
+  <details><summary>Indexes</summary>
+<pre>CREATE INDEX idx_bookings_customer        ON bookings(customer_id);
+CREATE INDEX idx_bookings_dates           ON bookings(pickup_datetime, return_datetime);
+CREATE INDEX idx_rentals_vehicle_dates    ON rental_agreements(vehicle_id, start_datetime, expected_return);
+CREATE INDEX idx_payments_invoice         ON payments(invoice_id);
+CREATE INDEX idx_maintenance_vehicle_date ON maintenance_records(vehicle_id, service_date);
+CREATE INDEX idx_audit_timestamp          ON audit_logs(action_timestamp);</pre></details>
+
+  <h3>Required production additions</h3>
+  <ul>
+    <li>Create roles, permissions, role_permissions and staff tables before implementing user administration.</li>
+    <li>Add invoice_items, deposits, refunds, inspection records, inspection items, rental drivers, rental extensions, insurance, registration, accident and damage tables.</li>
+    <li>Add controlled status values, preferably lookup tables or CHECK constraints, and document permitted status transitions.</li>
+    <li>Add transactional booking allocation logic and tests for concurrent booking attempts.</li>
+    <li>Add indexes based on actual search and reporting patterns; avoid unnecessary indexes that increase write and storage overhead.</li>
+    <li>Use schema migration scripts with version tracking; do not modify production tables ad hoc.</li>
+    <li>Store document metadata and secure file references in SQL, not large binary files, unless there is a specific reason to use database BLOB storage.</li>
+  </ul>
+</section>
+
+<section id="s11">
+  <h2><span class="num">11</span>Security, users and audit controls</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Role</th><th>Typical permissions</th></tr></thead>
+    <tbody>
+      <tr><td>Super Administrator</td><td>System configuration, user administration, database maintenance and full authorised access.</td></tr>
+      <tr><td>Business Manager</td><td>Operational oversight, reports, approvals and business settings.</td></tr>
+      <tr><td>Rental Officer</td><td>Customer records, reservations, agreements and vehicle handover.</td></tr>
+      <tr><td>Accountant</td><td>Invoices, payments, deposits, refunds and financial reports.</td></tr>
+      <tr><td>Fleet Manager</td><td>Vehicle register, inspections, maintenance and compliance.</td></tr>
+      <tr><td>Receptionist</td><td>Customer registration and booking entry, with limited access to sensitive documents.</td></tr>
+      <tr><td>Auditor</td><td>Read-only access to approved records and audit history.</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Security controls</h3>
+  <ul>
+    <li>Individual user accounts; no shared logins.</li>
+    <li>Password hashing using a modern password-hashing algorithm; never store plain-text passwords.</li>
+    <li>Role-based permissions enforced by the backend service.</li>
+    <li>Encryption for the database at rest and for sensitive documents, with managed keys.</li>
+    <li>TLS for any network connections to the application service.</li>
+    <li>Session timeout, account lockout or throttling, and secure password reset.</li>
+    <li>Audit logs for create, update, approve, reverse, export and administrative actions.</li>
+    <li>Restrict access to identity documents and personal information; define retention and deletion policies consistent with applicable law.</li>
+    <li>Use parameterised SQL queries to prevent SQL injection.</li>
+    <li>Protect backup copies to the same standard as the live database.</li>
+  </ul>
+  <div class="callout crit"><strong>SQLite has no native user accounts</strong>SQLite does not provide database user accounts or row-level security comparable to a server database. The backend application must authenticate users and enforce permissions. Anyone with direct access to an unencrypted database file may be able to read or modify its contents; operating-system permissions and encryption are therefore important.</div>
+</section>
+
+<section id="s12">
+  <h2><span class="num">12</span>Backup, recovery and database maintenance</h2>
+  <p>Suggested retention policy (confirm available backup capacity and business/legal requirements before adoption):</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Backup type</th><th>Suggested frequency / retention</th></tr></thead>
+    <tbody>
+      <tr><td>Daily</td><td>Automated consistent backup each day; retain a rolling set such as 14 days.</td></tr>
+      <tr><td>Weekly</td><td>Separate weekly backup; retain a suitable number of weeks, e.g. 8.</td></tr>
+      <tr><td>Monthly</td><td>Longer-term archive; e.g. 12 months, subject to policy.</td></tr>
+      <tr><td>Off-device copy</td><td>At least one encrypted copy stored separately from the host computer.</td></tr>
+      <tr><td>Restore test</td><td>Regular test restore, at least quarterly and after major system changes.</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Operational requirements</h3>
+  <ul>
+    <li>Use SQLite's online backup API or another SQLite-aware method to create a consistent backup while the database is in use.</li>
+    <li>Do not copy only the main <code>.db</code> file while WAL transactions are active and assume it is a complete backup.</li>
+    <li>Verify backup file integrity and perform test restores.</li>
+    <li>Document recovery steps, backup locations, encryption keys and responsible staff.</li>
+    <li>Monitor disk space before backup and maintenance operations.</li>
+    <li>Run <code>PRAGMA integrity_check</code> on a schedule and investigate failures.</li>
+    <li>Use <code>PRAGMA optimize</code> as appropriate; plan <code>VACUUM</code> carefully because it can require additional disk space and time.</li>
+    <li>Use WAL checkpoint management and monitor WAL growth.</li>
+  </ul>
+</section>
+
+<section id="s13">
+  <h2><span class="num">13</span>Application architecture and deployment</h2>
+  <h3>Recommended logical architecture</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Layer</th><th>Responsibility</th></tr></thead>
+    <tbody>
+      <tr><td>User interface</td><td>Web-based screens for dashboard, fleet, customers, bookings, rentals, finance and reports.</td></tr>
+      <tr><td>Backend / API</td><td>Business rules, authentication, permissions, validation, transactions and audit logging.</td></tr>
+      <tr><td>Database access layer</td><td>Parameterised SQL, connection management, migrations and transaction handling.</td></tr>
+      <tr><td>SQLite database</td><td>Standalone <code>car_rental.db</code> file containing structured business records.</td></tr>
+      <tr><td>Document service</td><td>Secure storage of licences, vehicle photos, signed agreements, invoices and inspection images.</td></tr>
+      <tr><td>Storage service</td><td>Quota monitoring, warnings, capacity checks and storage reports.</td></tr>
+      <tr><td>Backup service</td><td>Consistent database backups, document backups, verification and restore operations.</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Deployment guidance</h3>
+  <ul>
+    <li><strong>Single computer:</strong> local backend service and SQLite database on the same machine.</li>
+    <li><strong>Several computers:</strong> clients connect to a backend service hosted on the designated server/computer; only the backend opens the SQLite file.</li>
+    <li>Do not place an active SQLite database on a network share for direct multi-client access.</li>
+    <li>For sustained multi-user, multi-branch, high-write workloads, migrate to PostgreSQL while preserving the same relational model where practical.</li>
+    <li>Keep database, document storage and backups on managed storage volumes with access controls and adequate free space.</li>
+  </ul>
+</section>
+
+<section id="s14">
+  <h2><span class="num">14</span>Development sequence and acceptance criteria</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Phase</th><th>Deliverable</th></tr></thead>
+    <tbody>
+      <tr><td>1. Database foundation</td><td>SQLite initialisation; 50 GB page limit; core tables; foreign keys; indexes; migrations.</td></tr>
+      <tr><td>2. Authentication</td><td>Individual accounts, password hashing, roles, permissions and sessions.</td></tr>
+      <tr><td>3. Fleet management</td><td>Vehicle registration, categories, locations, status and availability.</td></tr>
+      <tr><td>4. Customer management</td><td>Customer profiles, licence/document records and verification.</td></tr>
+      <tr><td>5. Reservations and rentals</td><td>Booking calendar, conflict prevention, agreements, handover and returns.</td></tr>
+      <tr><td>6. Finance</td><td>Invoices, invoice items, payments, deposits, refunds and reconciliation.</td></tr>
+      <tr><td>7. Fleet operations</td><td>Inspections, damage, maintenance, insurance, registration and accidents.</td></tr>
+      <tr><td>8. Reporting</td><td>Dashboard KPIs, revenue, utilisation, fleet and finance reports.</td></tr>
+      <tr><td>9. Administration</td><td>Storage monitor, backup, recovery, audit, system settings and alerts.</td></tr>
+      <tr><td>10. Testing and deployment</td><td>Security, concurrency, quota, integrity, restore, usability and acceptance tests.</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Minimum acceptance tests</h3>
+  <ul>
+    <li>The database initialises with the required schema and reports the configured page limit.</li>
+    <li>Foreign-key constraints reject invalid references.</li>
+    <li>Duplicate registration, customer and transaction identifiers are rejected.</li>
+    <li>Two simultaneous attempts to reserve the same vehicle for overlapping periods cannot both succeed.</li>
+    <li>Vehicles in maintenance or return-pending status cannot be handed over.</li>
+    <li>Payments, deposits and refunds reconcile correctly; deposits are not counted as revenue.</li>
+    <li>Storage warnings trigger at configured thresholds and writes are safely rejected when quota would be exceeded.</li>
+    <li>WAL growth, free disk space, documents and backup storage are monitored separately.</li>
+    <li>A backup can be restored and passes integrity checks.</li>
+    <li>Role permissions prevent unauthorised access to financial and personal records.</li>
+    <li>Audit records identify the user, action, timestamp and affected record.</li>
+    <li>A schema migration can be applied and rolled back or recovered using a documented procedure.</li>
+  </ul>
+</section>
+
+<section id="s15">
+  <h2><span class="num">15</span>Important technical limitations and decisions</h2>
+  <div class="callout info"><strong>Scope of the 50 GB limit</strong>The 50 GB requirement is the maximum allocated size of the live SQL database pages. It does not automatically include the WAL file, shared-memory file, temporary files, external documents, exports or backups. These must have their own quotas and disk-space controls.</div>
+  <ul>
+    <li>A SQLite <code>max_page_count</code> setting caps the number of database pages, not the entire application folder or every associated working file.</li>
+    <li>Use a backend quota manager and operating-system storage controls if a strict physical storage ceiling is required.</li>
+    <li>The example schema is a starting point, not a complete production-ready database. The full implementation needs all tables, indexes, triggers, validation and migration scripts.</li>
+    <li>SQLite WAL mode supports concurrent readers but still has a single writer at a time. It is not a substitute for a server database in a high-concurrency, multi-branch environment.</li>
+    <li>Encryption is not built into standard SQLite by default; choose and test an appropriate encrypted database solution or storage encryption strategy.</li>
+    <li>Backup retention must be sized separately. A 50 GB database can require substantially more than 50 GB of backup space.</li>
+    <li>Before collecting customer identity documents, define lawful purposes, access restrictions, retention periods and secure disposal procedures.</li>
+  </ul>
+  <div class="callout ok"><strong>Final design decision</strong>Build the first version with SQLite 3, a standalone <code>car_rental.db</code> file, a 50 GB live database page quota, a separate document repository, a backend service, role-based application security, audit logging and verified off-device backups. Keep the relational schema modular so the business can migrate to PostgreSQL if its scale or concurrent workload grows.</div>
+</section>
+
+<footer>Car Rental Management System · Database Architecture · Version 1.0 · 3 November 2026 · End of architecture specification</footer>
+</main>
+</div>
+
+<script>
+(function(){
+  // Highlight current section in the sidebar
+  var links = Array.prototype.slice.call(document.querySelectorAll('#toc a'));
+  var map = {};
+  links.forEach(function(a){ map[a.getAttribute('href').slice(1)] = a; });
+  if ('IntersectionObserver' in window){
+    var obs = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if (e.isIntersecting && map[e.target.id]){
+          links.forEach(function(l){ l.classList.remove('active'); });
+          map[e.target.id].classList.add('active');
+        }
+      });
+    }, {rootMargin:'-20% 0px -70% 0px'});
+    Object.keys(map).forEach(function(id){
+      var el = document.getElementById(id); if (el) obs.observe(el);
+    });
+  }
+  // Expand / collapse all code blocks
+  var btn = document.getElementById('expandAll');
+  var open = false;
+  btn.addEventListener('click', function(){
+    open = !open;
+    document.querySelectorAll('details').forEach(function(d){ d.open = open; });
+    btn.textContent = open ? 'Collapse all code' : 'Expand all code';
+  });
+  // Open all details before printing
+  window.addEventListener('beforeprint', function(){
+    document.querySelectorAll('details').forEach(function(d){ d.open = true; });
+  });
+})();
+</script>
+</body>
+</html>
